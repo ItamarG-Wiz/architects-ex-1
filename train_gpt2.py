@@ -304,8 +304,8 @@ if torch.cuda.is_available():
 
 enc = tiktoken.get_encoding("gpt2")
 
-B = 4 # micro batch size
-T = 64 # sequence length
+B = 16 # micro batch size
+T = 1024 # sequence length
 
 train_loader = DataLoaderLite(B=B, T=T, process_rank=ddp_rank, num_processes=ddp_world_size, split="train")
 val_loader = DataLoaderLite(B=B, T=T, process_rank=ddp_rank, num_processes=ddp_world_size, split="val")
@@ -319,8 +319,8 @@ model.to(device)
 max_lr = 6e-4
 min_lr = max_lr * 0.1
 warmup_steps = 715
-max_steps = 100 # 19,073 steps is ~1 epoch, if data is 10B tokens and batch size 0.5M tokens
-val_every = 20 # evaluate the validation loss every N steps (bump to 100 later)
+max_steps = 500 # 19,073 steps is ~1 epoch, if data is 10B tokens and batch size 0.5M tokens
+val_every = 100 # evaluate the validation loss every N steps
 
 def get_lr(it):
     # 1) linear warmup for warmup_iters steps
@@ -359,7 +359,8 @@ for step in range(max_steps):
             for _ in range(val_loss_steps):
                 x, y = val_loader.next_batch()
                 x, y = x.to(device), y.to(device)
-                logits, loss = model(x, y)
+                with torch.autocast(device_type=device_type, dtype=torch.bfloat16):
+                    logits, loss = model(x, y)
                 loss = loss / val_loss_steps
                 val_loss_accum += loss.detach()
         if master_process:
@@ -372,9 +373,10 @@ for step in range(max_steps):
     # get the next batch and move it to the device
     x, y = train_loader.next_batch()
     x, y = x.to(device), y.to(device)
-    # forward pass
     optimizer.zero_grad()
-    logits, loss = model(x, y)
+    # forward pass in bfloat16 (mixed precision)
+    with torch.autocast(device_type=device_type, dtype=torch.bfloat16):
+        logits, loss = model(x, y)
     # backward pass
     loss.backward()
     # clip the global gradient norm to 1.0
