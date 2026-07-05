@@ -348,10 +348,23 @@ for step in range(max_steps):
     t0 = time.time()
     last_step = (step == max_steps - 1)
 
-    
-    # TODO: Implement the training step
-    
-    
+    # get the next batch and move it to the device
+    x, y = train_loader.next_batch()
+    x, y = x.to(device), y.to(device)
+    # forward pass
+    optimizer.zero_grad()
+    logits, loss = model(x, y)
+    # backward pass
+    loss.backward()
+    # clip the global gradient norm to 1.0
+    norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+    # determine and set the learning rate for this step
+    lr = get_lr(step)
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
+    # update the weights
+    optimizer.step()
+
     if device_type == "cuda":
         torch.cuda.synchronize() # wait for the GPU to finish work
 
